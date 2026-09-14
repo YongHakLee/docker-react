@@ -1,14 +1,71 @@
+# GitHub Actions 워크플로우의 이름 정의
 name: Deploy Frontend
+
+# 워크플로우 실행을 유발하는 이벤트 설정
 on:
+  # 코드가 푸시되었을 때 실행
   push:
+    # 감지할 대상 브랜치 목록
     branches:
+      # main 브랜치에 푸시가 발생할 때만 트리거
       - main
 
+# 실행할 작업(Job) 목록 정의
 jobs:
+  # 'build'라는 식별자를 가진 작업 정의
   build:
+    # 최신 Ubuntu 가상 머신 환경에서 실행
     runs-on: ubuntu-latest
+
+    # 순차적으로 실행될 단계(Step) 정의
     steps:
-      - uses: actions/checkout@v2
-      - run: docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
-      - run: docker build -t cygnetops/react-test -f Dockerfile.dev .
-      - run: docker run -e CI=true cygnetops/react-test npm test
+      # 저장소 소스 코드를 러너 환경으로 체크아웃
+      - uses: actions/checkout@v4
+
+      # GitHub Secrets를 사용해 Docker Hub 로그인
+      - run: >-
+          docker login
+          -u ${{ secrets.DOCKER_USERNAME }}
+          -p ${{ secrets.DOCKER_PASSWORD }}
+
+      # 개발용 Dockerfile.dev 기반으로 이미지 빌드
+      - run: >-
+          docker build
+          -t feint225/react-test
+          -f Dockerfile.dev .
+
+      # 컨테이너 내에서 React 단위 테스트 실행
+      # CI=true 설정으로 테스트 후 프로세스 즉시 종료
+      - run: >-
+          docker run
+          -e CI=true
+          feint225/react-test npm test
+
+      # EB 배포용 압축 파일 생성 단계 지정
+      - name: Generate deployment package
+        # .git 디렉터리를 제외하고 전체 파일을 deploy.zip으로 압축
+        run: zip -r deploy.zip . -x '*.git*'
+
+      # AWS Elastic Beanstalk 자동 배포 단계
+      - name: Deploy to EB
+        # EB 배포를 지원하는 오픈소스 커스텀 액션 사용
+        uses: einaregilsson/beanstalk-deploy@v22
+        # 액션 실행에 필요한 파라미터 전달
+        with:
+          # AWS IAM 사용자의 Access Key (Secrets 참조)
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY }}
+          # AWS IAM 사용자의 Secret Key (Secrets 참조)
+          aws_secret_key: ${{ secrets.AWS_SECRET_KEY }}
+          # AWS EB에 생성된 애플리케이션 이름
+          application_name: frontend
+          # AWS EB에 생성된 환경(Environment) 이름
+          environment_name: Frontend-env
+          # 배포 패키지(zip)를 저장할 AWS S3 버킷명
+          existing_bucket_name: >-
+            elasticbeanstalk-ap-southeast-2-136589555745
+          # 대상 Elastic Beanstalk 환경의 AWS 리전
+          region: ap-southeast-2
+          # 현재 배포 커밋의 고유 SHA 해시값을 버전 라벨로 사용
+          version_label: ${{ github.sha }}
+          # 업로드할 실제 배포 압축 파일 경로 지정
+          deployment_package: deploy.zip
